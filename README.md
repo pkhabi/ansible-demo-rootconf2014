@@ -1,9 +1,10 @@
 ansible-demo-RootConf2014
 =========================
 
-ansible demo
+ansible demo during rootconf 2014 workshop
 
 Install ansible and boto:
+
 sudo pip install ansible
 sudo pip install boto
 
