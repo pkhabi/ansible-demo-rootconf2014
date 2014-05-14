@@ -1,0 +1,108 @@
+--- 
+# This playbbok is prepared to be used during RootConf 2014 
+# This playbook has been simplified to make ansible learning easier for the RootConf-2014 audience
+- name: Create ec2 instance; update security group; create elb; add instance to elb; install httpd; copy index.html; make sure httpd is started
+  hosts: local
+  gather_facts: False
+  tags: provisioning
+
+  tasks: 
+    - local_action: 
+        count: "1"
+        group: ansible-demo
+        image: ami-7aba833f
+        instance_type: t1.micro
+        key_name: ansible-demo
+        module: ec2
+        wait: "true"
+        region: us-west-1
+        zone: us-west-1c 
+        instance_tags:
+          Name: rweb01
+          application: apache
+      register: ec2
+
+    - name: Add instance to local host file
+      local_action: lineinfile dest=hosts insertafter="[launched]" line="{{ item.public_ip }}"
+      with_items: ec2.instances
+
+    - name: Add new instance to memory
+      local_action: add_host hostname="{{ item.public_ip }}" groupname=launched
+      with_items: ec2.instances
+
+    - name: Update Port 80 to Security Group
+      local_action:
+        module: ec2_group
+        name: ansible-demo
+        description: RootConf Demo
+        region: us-west-1
+        rules:
+          - proto: tcp
+            from_port: 80
+            to_port: 80
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 22
+            to_port: 22
+            cidr_ip: 0.0.0.0/0
+
+    - name: Provision LB
+      local_action:
+        module: ec2_elb_lb
+        name: ansible-demo
+        state: present
+        region: us-west-1
+        zones:
+            - us-west-1c
+        listeners:
+          - protocol: http # options are http, https, ssl, tcp
+            load_balancer_port: 80
+            instance_port: 80                    
+        health_check:
+            ping_protocol: http # options are http, https, ssl, tcp
+            ping_port: 80
+            ping_path: "/index.html" # not required for tcp or ssl
+            response_timeout: 5 # seconds
+            interval: 6 # seconds
+            unhealthy_threshold: 2
+            healthy_threshold: 3
+
+    - name: Add instances to ELB
+      local_action:
+            module: ec2_elb
+            state: present
+            region: us-west-1
+            instance_id: "{{ item }}"
+            ec2_elbs: ansible-demo
+            wait: False
+      with_flattened: 
+            - ec2.instance_ids
+
+    - name: Wait for SSH to come up
+      local_action: wait_for host={{ item.public_dns_name }} port=22 delay=60 timeout=320 state=started
+      with_items: ec2.instances
+
+- name: Configure the instance
+  hosts: launched
+  user: ec2-user
+  gather_facts: True
+  sudo: True
+  tags: setup
+
+  tasks:
+    - name: Install httpd
+      yum: name=httpd state=latest
+
+    - name: Copy the index.html from source to new instance
+      copy: src=index.html dest=/var/www/html/index.html owner=root group=root mode=0644
+
+    - name: Check httpd service
+      service: name=httpd state=started
+
+    # Check the server returns status 200 and fail if the word Ansible is not in the page content.
+    - local_action: uri url=http://{{ inventory_hostname  }} return_content=yes
+      register: webpage
+      sudo: no
+
+    - action: fail
+      when: not 'Ansible' in "{{ webpage.content }}"
