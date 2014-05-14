@@ -1,6 +1,7 @@
 --- 
 # This playbbok is prepared to be used during RootConf 2014 
-# This playbook has been simplified to make ansible learning easier for the RootConf-2014 audience
+# The aim was to simplify the playbook to make ansible learning easier for the RootConf-2014 audience
+# Variables/roles/include etc are not used
 - name: Create ec2 instance; update security group; create elb; add instance to elb; install httpd; copy index.html; make sure httpd is started
   hosts: local
   gather_facts: False
